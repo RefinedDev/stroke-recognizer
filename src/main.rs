@@ -20,9 +20,10 @@ struct ToggleBrushButton;
 #[derive(PartialEq)]
 enum DrawMoment {
     Idle,
-    InputEnded,
-    InputBegan(Vec2),
-    Held(Vec2),
+    Ended,
+    Paused,
+    Began(Vec2, bool), // the bool is to check if it previously it was paused or not
+    Drawing(Vec2),
 }
 
 #[derive(Resource)]
@@ -64,7 +65,7 @@ fn main() {
             Update,
             (toggle_brush, draw_state_handler, draw).chain(),
         )
-        .insert_resource(BrushEnabled(false))
+        .insert_resource(BrushEnabled(true))
         .insert_resource(DrawState(DrawMoment::Idle))
         .run();
 }
@@ -103,25 +104,30 @@ fn draw_state_handler(
 ) {
     if buttons.just_pressed(MouseButton::Left) {
         if let Some(x) = window.cursor_position() {
-            draw_state.0 = DrawMoment::InputBegan(x);
+            draw_state.0 = DrawMoment::Began(x, draw_state.0 == DrawMoment::Paused);
         }
     } else if buttons.pressed(MouseButton::Left) {
         if let Some(x) = window.cursor_position() {
-            draw_state.0 = DrawMoment::Held(x);
+            draw_state.0 = DrawMoment::Drawing(x);
         }
     } else {
         for touch in touches.iter() {
             if touches.just_pressed(touch.id()) {
-                draw_state.0 = DrawMoment::InputBegan(touch.position());
+                draw_state.0 = DrawMoment::Began(touch.position(), draw_state.0 == DrawMoment::Paused);
             } else {
-                draw_state.0 = DrawMoment::Held(touch.position());
+                draw_state.0 = DrawMoment::Drawing(touch.position());
             }
             break;
         }
     }
 
     if buttons.just_released(MouseButton::Left) || touches.any_just_released() {
-        draw_state.0 = DrawMoment::InputEnded;
+        draw_state.0 = DrawMoment::Paused;
+    }
+
+    // implement button for phone
+    if buttons.just_released(MouseButton::Right) {
+        draw_state.0 = DrawMoment::Ended
     }
 }
 
@@ -157,17 +163,19 @@ fn draw(
     mut draw_state: ResMut<DrawState>,
     brush_enabled: Res<BrushEnabled>,
 ) {
-    if let DrawMoment::InputBegan(mouse_pos) = draw_state.0 {
-        candidate_points.clear();
-        result_text.0 = "".to_string();
-
+    if let DrawMoment::Began(mouse_pos, was_paused) = draw_state.0 {
+        result_text.0 = "".to_string();   
         let board = images.get_mut(&drawingboard.0).expect("Board not found!!");
-        reset_board(window.size(), board, true);
 
+        if !was_paused {
+            candidate_points.clear(); 
+            reset_board(window.size(), board, true);
+        }
+        
         fill_pixel(board, mouse_pos, true, brush_enabled.0);
         *previous_pos = mouse_pos;
         candidate_points.push(mouse_pos);
-    } else if draw_state.0 == DrawMoment::InputEnded {
+    } else if draw_state.0 == DrawMoment::Ended {
         let start_time = Utc::now();
         // CODE
         let end_time = Utc::now();
@@ -180,7 +188,7 @@ fn draw(
         );
         
         draw_state.0 = DrawMoment::Idle;
-    } else if let DrawMoment::Held(mouse_pos) = draw_state.0 {
+    } else if let DrawMoment::Drawing(mouse_pos) = draw_state.0 {
         let board = images.get_mut(&drawingboard.0).expect("Board not found!!");
         let delta = previous_pos.distance(mouse_pos);
 
