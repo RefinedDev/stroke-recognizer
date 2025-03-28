@@ -1,9 +1,16 @@
-use bevy::{asset::RenderAssetUsages, dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin}, prelude::*, render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
+use bevy::{
+    asset::RenderAssetUsages,
+    dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin},
+    input::mouse::AccumulatedMouseMotion,
+    prelude::*,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+};
 use chrono::Utc;
 
 const BRUSH_THICKNESS: u32 = 3;
 const BRUSH_COLOR: Color = Color::linear_rgb(255.0, 255.0, 255.0);
 const BOARD_COLOR: Color = Color::linear_rgb(0.0, 0.0, 0.0);
+const N_RESAMPLED_POINTS: usize = 64;
 
 #[derive(Resource)]
 struct DrawingBoard(Handle<Image>);
@@ -28,6 +35,80 @@ enum DrawMoment {
 
 #[derive(Resource)]
 struct DrawState(DrawMoment);
+
+fn resample(candidate_vectors: &Vec<Vec<Vec2>>, total_length: f32) -> Vec<Vec2> {
+    let mut resampled_points: Vec<Vec2> = Vec::with_capacity(N_RESAMPLED_POINTS);
+    let increment = total_length / N_RESAMPLED_POINTS as f32;
+
+    for candidate_points in candidate_vectors.iter() {
+        if candidate_points.len() > 1 {
+            resampled_points.push(candidate_points[0]);
+
+            let mut accumulated_distance = 0.0;
+            let mut previous_point = candidate_points[0];
+
+            for i in 1..candidate_points.len() {
+                let current_point = candidate_points[i];
+                let mut segment_distance = previous_point.distance(current_point);
+
+                while segment_distance + accumulated_distance >= increment
+                    && resampled_points.len() < N_RESAMPLED_POINTS
+                {
+                    let alpha = (increment - accumulated_distance) / segment_distance;
+                    let dv = previous_point.lerp(current_point, alpha);
+
+                    resampled_points.push(dv);
+
+                    previous_point = dv;
+                    accumulated_distance = 0.0;
+                    segment_distance = dv.distance(current_point);
+                }
+
+                accumulated_distance += segment_distance;
+                previous_point = current_point;
+            }
+        }
+    }
+
+    resampled_points
+}
+
+fn get_centroid(points: &Vec<Vec2>) -> Vec2 {
+    let mut c_x = 0.0;
+    let mut c_y = 0.0;
+    for point in points.iter() {
+        c_x += point.x;
+        c_y += point.y;
+    }
+    c_x /= points.len() as f32;
+    c_y /= points.len() as f32;
+    Vec2::new(c_x, c_y)
+}
+
+fn scale_and_translate(points: &mut Vec<Vec2>) {
+    // bounding box
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for point in points.iter() {
+        min_x = min_x.min(point.x);
+        min_y = min_y.min(point.y);
+        max_x = max_x.max(point.x);
+        max_y = max_y.max(point.y);
+    }
+
+    // scale
+    let scale = f32::max(max_x - min_x, max_y - min_y);
+    for point in points.iter_mut() {
+        point.x = (point.x - min_x) / scale;
+        point.y = (point.y - min_y) / scale;
+    }
+
+    // translate to origin
+    let centroid = get_centroid(&points);
+    for point in points.iter_mut() {
+        point.x -= centroid.x;
+        point.y -= centroid.y;
+    }
+}
 
 fn reset_board(window_size: Vec2, board: &mut Image, resize: bool) {
     if resize {
@@ -61,10 +142,7 @@ fn main() {
             },
         ))
         .add_systems(Startup, (setup_window, spawn))
-        .add_systems(
-            Update,
-            (toggle_brush, draw_state_handler, draw).chain(),
-        )
+        .add_systems(Update, (toggle_brush, draw_state_handler, draw).chain())
         .insert_resource(BrushEnabled(true))
         .insert_resource(DrawState(DrawMoment::Idle))
         .run();
@@ -73,10 +151,7 @@ fn main() {
 fn toggle_brush(
     mut brush_enabled: ResMut<BrushEnabled>,
     mut interaction_query: Query<
-        (
-            &Interaction,
-            &mut BorderColor,
-        ),
+        (&Interaction, &mut BorderColor),
         (Changed<Interaction>, With<ToggleBrushButton>),
     >,
     mut text: Single<&mut Text, With<ToggleBrushButton>>,
@@ -86,7 +161,11 @@ fn toggle_brush(
             Interaction::Pressed => {
                 brush_enabled.0 = !brush_enabled.0;
                 border_color.0 = bevy::color::palettes::css::LIGHT_GREEN.into();
-                text.0 = if brush_enabled.0 { format!("ON") } else { format!("OFF") };
+                text.0 = if brush_enabled.0 {
+                    format!("ON")
+                } else {
+                    format!("OFF")
+                };
             }
             _ => {
                 text.0 = format!("Toggle Brush");
@@ -99,6 +178,7 @@ fn toggle_brush(
 fn draw_state_handler(
     buttons: Res<ButtonInput<MouseButton>>,
     touches: Res<Touches>,
+    mouse_move_delta: Res<AccumulatedMouseMotion>,
     mut draw_state: ResMut<DrawState>,
     window: Single<&Window>,
 ) {
@@ -106,15 +186,20 @@ fn draw_state_handler(
         if let Some(x) = window.cursor_position() {
             draw_state.0 = DrawMoment::Began(x, draw_state.0 == DrawMoment::Paused);
         }
-    } else if buttons.pressed(MouseButton::Left) {
+    } else if buttons.pressed(MouseButton::Left) && mouse_move_delta.delta != Vec2::ZERO {
         if let Some(x) = window.cursor_position() {
             draw_state.0 = DrawMoment::Drawing(x);
         }
     } else {
+        if draw_state.0 != DrawMoment::Paused {
+            draw_state.0 = DrawMoment::Idle;
+        }
+
         for touch in touches.iter() {
             if touches.just_pressed(touch.id()) {
-                draw_state.0 = DrawMoment::Began(touch.position(), draw_state.0 == DrawMoment::Paused);
-            } else {
+                draw_state.0 =
+                    DrawMoment::Began(touch.position(), draw_state.0 == DrawMoment::Paused);
+            } else if touch.delta() != Vec2::ZERO {
                 draw_state.0 = DrawMoment::Drawing(touch.position());
             }
             break;
@@ -132,7 +217,11 @@ fn draw_state_handler(
 }
 
 fn fill_pixel(board: &mut Image, vec: Vec2, first_pixel: bool, brush_enabled: bool) {
-    let thickness = if first_pixel { BRUSH_THICKNESS*2 } else { BRUSH_THICKNESS };
+    let thickness = if first_pixel {
+        BRUSH_THICKNESS * 2
+    } else {
+        BRUSH_THICKNESS
+    };
     if brush_enabled {
         for theta in 0..=360 {
             for delta_r in 0..=thickness {
@@ -158,26 +247,42 @@ fn draw(
     window: Single<&Window>,
 
     mut previous_pos: Local<Vec2>,
-    mut candidate_points: Local<Vec<Vec2>>,
+    mut stroke_index: Local<usize>,
+    mut candidate_vectors: Local<Vec<Vec<Vec2>>>,
+    mut total_length: Local<f32>,
 
     mut draw_state: ResMut<DrawState>,
     brush_enabled: Res<BrushEnabled>,
 ) {
-    if let DrawMoment::Began(mouse_pos, was_paused) = draw_state.0 {
-        result_text.0 = "".to_string();   
+    if let DrawMoment::Began(mouse_pos, paused) = draw_state.0 {
+        result_text.0 = "".to_string();
         let board = images.get_mut(&drawingboard.0).expect("Board not found!!");
 
-        if !was_paused {
-            candidate_points.clear(); 
+        if !paused {
+            candidate_vectors.clear();
+            candidate_vectors.push(vec![]);
+            *total_length = 0.0;
             reset_board(window.size(), board, true);
+        } else {
+            *stroke_index += 1;
+            candidate_vectors.push(vec![]);
         }
-        
+
         fill_pixel(board, mouse_pos, true, brush_enabled.0);
         *previous_pos = mouse_pos;
-        candidate_points.push(mouse_pos);
+        candidate_vectors[*stroke_index].push(mouse_pos);
     } else if draw_state.0 == DrawMoment::Ended {
         let start_time = Utc::now();
-        // CODE
+
+        let mut resampled_points = resample(&candidate_vectors, *total_length);
+        scale_and_translate(&mut resampled_points);
+
+        // let board = images.get_mut(&drawingboard.0).expect("Board not found!!");
+        // reset_board(window.size(), board, false);
+        // for point in resampled_points {
+        //     board.set_color_at((point.x + window.size().x/2.0) as u32, (point.y + window.size().y/2.0) as u32, BRUSH_COLOR).unwrap();
+        // }
+
         let end_time = Utc::now();
         let elapsed_time = end_time.signed_duration_since(start_time);
         result_text.0 = format!(
@@ -186,8 +291,9 @@ fn draw(
             elapsed_time.num_milliseconds(),
             elapsed_time.num_microseconds().get_or_insert_default()
         );
-        
+
         draw_state.0 = DrawMoment::Idle;
+        *stroke_index = 0;
     } else if let DrawMoment::Drawing(mouse_pos) = draw_state.0 {
         let board = images.get_mut(&drawingboard.0).expect("Board not found!!");
         let delta = previous_pos.distance(mouse_pos);
@@ -203,8 +309,9 @@ fn draw(
             fill_pixel(board, mouse_pos, false, brush_enabled.0);
         }
 
-        candidate_points.push(mouse_pos);
+        candidate_vectors[*stroke_index].push(mouse_pos);
         *previous_pos = mouse_pos;
+        *total_length += delta;
     }
 }
 
@@ -226,9 +333,7 @@ fn spawn(window: Single<&Window>, mut commands: Commands, mut images: ResMut<Ass
     ));
 
     commands.spawn((
-        Text::new(
-            "\n\n\n'Toggle Brush' for performance",
-        ),
+        Text::new("\n\n\n'Toggle Brush' for performance"),
         TextFont {
             font_size: 20.0,
             ..default()
@@ -241,7 +346,7 @@ fn spawn(window: Single<&Window>, mut commands: Commands, mut images: ResMut<Ass
             ..default()
         },
     ));
-    
+
     commands
         .spawn(Node {
             width: Val::Percent(100.0),
@@ -264,7 +369,7 @@ fn spawn(window: Single<&Window>, mut commands: Commands, mut images: ResMut<Ass
                     BorderColor(Color::WHITE),
                     BorderRadius::MAX,
                     BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
-                    ToggleBrushButton
+                    ToggleBrushButton,
                 ))
                 .with_child((
                     Text::new("Toggle Brush"),
@@ -273,7 +378,7 @@ fn spawn(window: Single<&Window>, mut commands: Commands, mut images: ResMut<Ass
                         ..default()
                     },
                     TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                    ToggleBrushButton
+                    ToggleBrushButton,
                 ));
         });
 
@@ -295,6 +400,6 @@ fn spawn(window: Single<&Window>, mut commands: Commands, mut images: ResMut<Ass
 }
 
 fn setup_window(mut window: Single<&mut Window>) {
-    window.title = String::from("$1 Unistroke Pattern Recognizer");
+    window.title = String::from("Stroke Recognizer");
     window.position = WindowPosition::Centered(MonitorSelection::Current);
 }
