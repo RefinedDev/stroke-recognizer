@@ -1,3 +1,8 @@
+mod templates;
+
+use core::f32;
+use std::collections::{HashMap, HashSet};
+
 use bevy::{
     asset::RenderAssetUsages,
     dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin},
@@ -5,7 +10,9 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
+use bevy_simple_text_input::{TextInput, TextInputPlugin, TextInputSubmitEvent, TextInputTextFont};
 use chrono::Utc;
+use templates::Template;
 
 const BRUSH_THICKNESS: u32 = 3;
 const BRUSH_COLOR: Color = Color::linear_rgb(255.0, 255.0, 255.0);
@@ -21,8 +28,17 @@ struct ResultText;
 #[derive(Resource)]
 struct BrushEnabled(bool);
 
+#[derive(Resource)]
+struct IsTyping(bool);
+
+#[derive(Resource)]
+struct OverAButton(bool);
+
 #[derive(Component)]
 struct ToggleBrushButton;
+
+#[derive(Component)]
+struct AddGestureButton;
 
 #[derive(PartialEq)]
 enum DrawMoment {
@@ -35,6 +51,12 @@ enum DrawMoment {
 
 #[derive(Resource)]
 struct DrawState(DrawMoment);
+
+#[derive(Resource)]
+struct StrokeTemplates(HashMap<String, HashSet<Template>>);
+
+#[derive(Resource)]
+struct ResampledPoints(Vec<Vec2>);
 
 fn resample(candidate_vectors: &Vec<Vec<Vec2>>, total_length: f32) -> Vec<Vec2> {
     let mut resampled_points: Vec<Vec2> = Vec::with_capacity(N_RESAMPLED_POINTS);
@@ -110,6 +132,62 @@ fn scale_and_translate(points: &mut Vec<Vec2>) {
     }
 }
 
+fn greedy_2_eval_nearest(
+    points_index: usize,
+    unistroke_points: &mut Vec<Vec2>,
+    points: &Vec<Vec2>,
+) -> f32 {
+    let mut nearest_dist = f32::MAX;
+    let mut nearest_point_index = 0;
+    unistroke_points
+        .iter()
+        .enumerate()
+        .for_each(|(j, t_point)| {
+            let d = points[points_index].distance_squared(*t_point);
+            if d < nearest_dist {
+                nearest_dist = d;
+                nearest_point_index = j;
+            }
+        });
+    unistroke_points.swap_remove(nearest_point_index);
+    nearest_dist
+}
+// O(n^(2 + epsilon))
+fn greedy_2(templates: Res<StrokeTemplates>, points: &Vec<Vec2>, epsilon: f32) -> String {
+    let mut least_shape_distance = f32::MAX;
+    let mut nearest_shape_name = "not recognized";
+
+    let n_starting_points = (N_RESAMPLED_POINTS as f32).powf(epsilon).ceil() as usize;
+
+    for (name, unistrokes) in templates.0.iter() {
+        for unistroke_template in unistrokes.iter() {
+            let mut least_distance: f32 = f32::MAX;
+
+            for starting_point in 0..n_starting_points {
+                let mut total_distance: f32 = 0.0;
+                let mut unistroke_points = unistroke_template.0.to_vec();
+
+                for i in starting_point..N_RESAMPLED_POINTS {
+                    total_distance += greedy_2_eval_nearest(i, &mut unistroke_points, points);
+                }
+
+                for i in 0..starting_point {
+                    total_distance += greedy_2_eval_nearest(i, &mut unistroke_points, points);
+                }
+
+                least_distance = least_distance.min(total_distance);
+            }
+
+            if least_distance < least_shape_distance {
+                least_shape_distance = least_distance;
+                nearest_shape_name = name;
+            }
+        }
+    }
+
+    nearest_shape_name.to_string()
+}
+
 fn reset_board(window_size: Vec2, board: &mut Image, resize: bool) {
     if resize {
         board.resize(Extent3d {
@@ -130,6 +208,7 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
+            TextInputPlugin,
             FpsOverlayPlugin {
                 config: FpsOverlayConfig {
                     text_config: TextFont {
@@ -142,9 +221,23 @@ fn main() {
             },
         ))
         .add_systems(Startup, (setup_window, spawn))
-        .add_systems(Update, (toggle_brush, draw_state_handler, draw).chain())
+        .add_systems(
+            Update,
+            (
+                toggle_brush,
+                handle_adding_gestures,
+                draw_state_handler,
+                draw,
+                textbox_input_listener,
+            )
+                .chain(),
+        )
         .insert_resource(BrushEnabled(true))
+        .insert_resource(IsTyping(false))
+        .insert_resource(OverAButton(false))
         .insert_resource(DrawState(DrawMoment::Idle))
+        .insert_resource(StrokeTemplates(templates::stroke_templates()))
+        .insert_resource(ResampledPoints(Vec::new()))
         .run();
 }
 
@@ -172,6 +265,90 @@ fn toggle_brush(
                 border_color.0 = Color::WHITE;
             }
         }
+    }
+}
+
+fn handle_adding_gestures(
+    mut commands: Commands,
+    mut typing: ResMut<IsTyping>,
+    mut over_button: ResMut<OverAButton>,
+    mut interaction_query: Query<
+        (&Interaction, &mut BorderColor),
+        (Changed<Interaction>, With<AddGestureButton>),
+    >,
+    result_text: Single<&Text, With<ResultText>>,
+) {
+    for (interaction, mut border_color) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                over_button.0 = true;
+                border_color.0 = bevy::color::palettes::css::LIGHT_GREEN.into();
+                if !result_text.0.is_empty() && !typing.0 {
+                    typing.0 = true;
+                    commands
+                        .spawn(Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Percent(100.0),
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::Center,
+                            bottom: Val::Px(300.0),
+                            ..default()
+                        })
+                        .with_children(|parent| {
+                            parent.spawn((
+                                Node {
+                                    width: Val::Px(200.0),
+                                    border: UiRect::all(Val::Px(5.0)),
+                                    padding: UiRect::all(Val::Px(5.0)),
+                                    ..default()
+                                },
+                                BorderColor(BRUSH_COLOR),
+                                TextInput,
+                                TextInputTextFont(TextFont {
+                                    font_size: 34.,
+                                    ..default()
+                                }),
+                            ));
+                        });
+                }
+            }
+            _ => {
+                border_color.0 = Color::WHITE;
+            }
+        }
+    }
+}
+
+fn textbox_input_listener(
+    mut events: EventReader<TextInputSubmitEvent>,
+    mut typing: ResMut<IsTyping>,
+    mut commands: Commands,
+    resampled_points: Res<ResampledPoints>,
+    mut custom_templates: ResMut<StrokeTemplates>,
+    mut result_text: Single<&mut Text, With<ResultText>>,
+) {
+    for event in events.read() {
+        let text = &event.value;
+
+        if resampled_points.0.len() == N_RESAMPLED_POINTS {
+            if let Some(set) = custom_templates.0.get_mut(text) {
+                set.insert(Template(resampled_points.0.to_owned().try_into().unwrap()));
+            } else {
+                custom_templates.0.insert(
+                    text.clone(),
+                    HashSet::from([Template(resampled_points.0.to_owned().try_into().unwrap())]),
+                );
+            }
+            result_text.0 = format!("{} gesture added!", text);
+        } else {
+            result_text.0 = format!(
+                "Gesture drawn has too little resampled points (< {})",
+                N_RESAMPLED_POINTS
+            );
+        }
+
+        typing.0 = false;
+        commands.entity(event.entity).despawn();
     }
 }
 
@@ -250,10 +427,21 @@ fn draw(
     mut stroke_index: Local<usize>,
     mut candidate_vectors: Local<Vec<Vec<Vec2>>>,
     mut total_length: Local<f32>,
+    is_typing: Res<IsTyping>,
+    mut over_button: ResMut<OverAButton>,
+    mut final_resampled_points: ResMut<ResampledPoints>,
 
     mut draw_state: ResMut<DrawState>,
     brush_enabled: Res<BrushEnabled>,
+
+    templates: Res<StrokeTemplates>,
 ) {
+    if is_typing.0 || over_button.0 {
+        draw_state.0 = DrawMoment::Idle;
+        over_button.0 = false;
+        return;
+    }
+
     if let DrawMoment::Began(mouse_pos, paused) = draw_state.0 {
         result_text.0 = "".to_string();
         let board = images.get_mut(&drawingboard.0).expect("Board not found!!");
@@ -276,22 +464,18 @@ fn draw(
 
         let mut resampled_points = resample(&candidate_vectors, *total_length);
         scale_and_translate(&mut resampled_points);
-
-        // let board = images.get_mut(&drawingboard.0).expect("Board not found!!");
-        // reset_board(window.size(), board, false);
-        // for point in resampled_points {
-        //     board.set_color_at((point.x + window.size().x/2.0) as u32, (point.y + window.size().y/2.0) as u32, BRUSH_COLOR).unwrap();
-        // }
+        let name = greedy_2(templates, &resampled_points, 0.5);
 
         let end_time = Utc::now();
         let elapsed_time = end_time.signed_duration_since(start_time);
         result_text.0 = format!(
             "{}\n{}.{} milliseconds",
-            "PLACEHOLDER",
+            name,
             elapsed_time.num_milliseconds(),
             elapsed_time.num_microseconds().get_or_insert_default()
         );
 
+        final_resampled_points.0 = resampled_points;
         draw_state.0 = DrawMoment::Idle;
         *stroke_index = 0;
     } else if let DrawMoment::Drawing(mouse_pos) = draw_state.0 {
@@ -333,7 +517,7 @@ fn spawn(window: Single<&Window>, mut commands: Commands, mut images: ResMut<Ass
     ));
 
     commands.spawn((
-        Text::new("\n\n\n'Toggle Brush' for performance"),
+        Text::new("Misrecognized? 'Add' stroke as a gesture\n\n\n'Toggle Brush' for performance"),
         TextFont {
             font_size: 20.0,
             ..default()
@@ -346,6 +530,41 @@ fn spawn(window: Single<&Window>, mut commands: Commands, mut images: ResMut<Ass
             ..default()
         },
     ));
+
+    commands
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            align_items: AlignItems::End,
+            bottom: Val::Px(80.0),
+            ..default()
+        })
+        .with_children(|parent| {
+            parent
+                .spawn((
+                    Button,
+                    Node {
+                        width: Val::Px(140.0),
+                        height: Val::Px(65.0),
+                        border: UiRect::all(Val::Px(3.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BorderColor(Color::WHITE),
+                    BorderRadius::MAX,
+                    BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
+                    AddGestureButton,
+                ))
+                .with_child((
+                    Text::new("Add"),
+                    TextFont {
+                        font_size: 17.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                ));
+        });
 
     commands
         .spawn(Node {
