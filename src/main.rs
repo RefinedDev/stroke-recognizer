@@ -92,6 +92,10 @@ fn resample(candidate_vectors: &Vec<Vec<Vec2>>, total_length: f32) -> Vec<Vec2> 
         }
     }
 
+    while resampled_points.len() > 64 {
+        resampled_points.pop();
+    }
+    
     resampled_points
 }
 
@@ -134,8 +138,9 @@ fn scale_and_translate(points: &mut Vec<Vec2>) {
 
 fn get_weights() -> [f32; N_RESAMPLED_POINTS] {
     let mut weights = [0.0; N_RESAMPLED_POINTS];
+    let n = N_RESAMPLED_POINTS as f32;
     for i in 0..N_RESAMPLED_POINTS {
-        weights[i] = 1.0 - i as f32 / N_RESAMPLED_POINTS as f32;
+        weights[i] = 1.0 - i as f32 / n;
     }
     weights
 }
@@ -145,20 +150,16 @@ fn greedy_5_eval_nearest(
     candidate: &Vec<Vec2>,
     weights: [f32; N_RESAMPLED_POINTS],
 ) -> f32 {
-    let mut weight = 1.0;
     let mut nearest_dist = f32::MAX;
     let mut nearest_point_index = 0;
-    template
-        .iter()
-        .enumerate()
-        .for_each(|(j, t_point)| {
-            weight = weights[j];
-            let d = weight * candidate[candidate_index].distance_squared(*t_point);
-            if d < nearest_dist {
-                nearest_dist = d;
-                nearest_point_index = j;
-            }
-        });
+    template.iter().enumerate().for_each(|(j, t_point)| {
+        let weight = weights[j];
+        let d = weight * candidate[candidate_index].distance_squared(*t_point);
+        if d < nearest_dist {
+            nearest_dist = d;
+            nearest_point_index = j;
+        }
+    });
     template.swap_remove(nearest_point_index);
     nearest_dist
 }
@@ -380,7 +381,9 @@ fn draw_state_handler(
         if let Some(x) = window.cursor_position() {
             draw_state.0 = DrawMoment::Began(x, draw_state.0 == DrawMoment::Paused);
         }
-    } else if buttons.pressed(MouseButton::Left) && mouse_move_delta.delta != Vec2::ZERO || keyboard.pressed(KeyCode::Space) && mouse_move_delta.delta != Vec2::ZERO {
+    } else if buttons.pressed(MouseButton::Left) && mouse_move_delta.delta != Vec2::ZERO
+        || keyboard.pressed(KeyCode::Space) && mouse_move_delta.delta != Vec2::ZERO
+    {
         if let Some(x) = window.cursor_position() {
             draw_state.0 = DrawMoment::Drawing(x);
         }
@@ -400,7 +403,10 @@ fn draw_state_handler(
         }
     }
 
-    if buttons.just_released(MouseButton::Left) || keyboard.just_released(KeyCode::Space) || touches.any_just_released() {
+    if buttons.just_released(MouseButton::Left)
+        || keyboard.just_released(KeyCode::Space)
+        || touches.any_just_released()
+    {
         draw_state.0 = DrawMoment::Paused;
     }
 
