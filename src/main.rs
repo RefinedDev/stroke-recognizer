@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::{
     asset::RenderAssetUsages,
     dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin},
-    input::mouse::AccumulatedMouseMotion,
+    input::{keyboard::KeyboardInput, mouse::AccumulatedMouseMotion},
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
@@ -354,16 +354,17 @@ fn textbox_input_listener(
 
 fn draw_state_handler(
     buttons: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     touches: Res<Touches>,
     mouse_move_delta: Res<AccumulatedMouseMotion>,
     mut draw_state: ResMut<DrawState>,
     window: Single<&Window>,
 ) {
-    if buttons.just_pressed(MouseButton::Left) {
+    if buttons.just_pressed(MouseButton::Left) || keyboard.just_pressed(KeyCode::Space) {
         if let Some(x) = window.cursor_position() {
             draw_state.0 = DrawMoment::Began(x, draw_state.0 == DrawMoment::Paused);
         }
-    } else if buttons.pressed(MouseButton::Left) && mouse_move_delta.delta != Vec2::ZERO {
+    } else if buttons.pressed(MouseButton::Left) && mouse_move_delta.delta != Vec2::ZERO || keyboard.pressed(KeyCode::Space) && mouse_move_delta.delta != Vec2::ZERO {
         if let Some(x) = window.cursor_position() {
             draw_state.0 = DrawMoment::Drawing(x);
         }
@@ -383,7 +384,7 @@ fn draw_state_handler(
         }
     }
 
-    if buttons.just_released(MouseButton::Left) || touches.any_just_released() {
+    if buttons.just_released(MouseButton::Left) || keyboard.just_released(KeyCode::Space) || touches.any_just_released() {
         draw_state.0 = DrawMoment::Paused;
     }
 
