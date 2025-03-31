@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::{
     asset::RenderAssetUsages,
     dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin},
-    input::{keyboard::KeyboardInput, mouse::AccumulatedMouseMotion},
+    input::mouse::AccumulatedMouseMotion,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
@@ -132,50 +132,66 @@ fn scale_and_translate(points: &mut Vec<Vec2>) {
     }
 }
 
-fn greedy_2_eval_nearest(
-    points_index: usize,
-    unistroke_points: &mut Vec<Vec2>,
-    points: &Vec<Vec2>,
+fn get_weights() -> [f32; N_RESAMPLED_POINTS] {
+    let mut weights = [0.0; N_RESAMPLED_POINTS];
+    for i in 0..N_RESAMPLED_POINTS {
+        weights[i] = 1.0 - i as f32 / N_RESAMPLED_POINTS as f32;
+    }
+    weights
+}
+fn greedy_5_eval_nearest(
+    candidate_index: usize,
+    template: &mut Vec<Vec2>,
+    candidate: &Vec<Vec2>,
+    weights: [f32; N_RESAMPLED_POINTS],
 ) -> f32 {
+    let mut weight = 1.0;
     let mut nearest_dist = f32::MAX;
     let mut nearest_point_index = 0;
-    unistroke_points
+    template
         .iter()
         .enumerate()
         .for_each(|(j, t_point)| {
-            let d = points[points_index].distance_squared(*t_point);
+            weight = weights[j];
+            let d = weight * candidate[candidate_index].distance_squared(*t_point);
             if d < nearest_dist {
                 nearest_dist = d;
                 nearest_point_index = j;
             }
         });
-    unistroke_points.swap_remove(nearest_point_index);
+    template.swap_remove(nearest_point_index);
     nearest_dist
 }
 // O(n^(2 + epsilon))
-fn greedy_2(templates: Res<StrokeTemplates>, points: &Vec<Vec2>, epsilon: f32) -> String {
+fn greedy_5(templates: Res<StrokeTemplates>, resampled_points: &Vec<Vec2>, epsilon: f32) -> String {
     let mut least_shape_distance = f32::MAX;
     let mut nearest_shape_name = "not recognized";
 
     let n_starting_points = (N_RESAMPLED_POINTS as f32).powf(epsilon).ceil() as usize;
-
-    for (name, unistrokes) in templates.0.iter() {
-        for unistroke_template in unistrokes.iter() {
+    let weights = get_weights();
+    for (name, stroke) in templates.0.iter() {
+        for stroke in stroke.iter() {
             let mut least_distance: f32 = f32::MAX;
-
+           
             for starting_point in 0..n_starting_points {
-                let mut total_distance: f32 = 0.0;
-                let mut unistroke_points = unistroke_template.0.to_vec();
+                let mut total_distance_1: f32 = 0.0; // matching candidate with template
+                let mut template_p_clone = stroke.0.clone();
+                
+                let mut total_distance_2: f32 = 0.0; // matching template with candidate
+                let mut resampled_p_clone = resampled_points.clone();
 
                 for i in starting_point..N_RESAMPLED_POINTS {
-                    total_distance += greedy_2_eval_nearest(i, &mut unistroke_points, points);
+                    total_distance_1 += greedy_5_eval_nearest(i, &mut template_p_clone, resampled_points, weights);
+                    total_distance_2 += greedy_5_eval_nearest(i, &mut resampled_p_clone, &stroke.0, weights);
                 }
 
                 for i in 0..starting_point {
-                    total_distance += greedy_2_eval_nearest(i, &mut unistroke_points, points);
+                    total_distance_1 += greedy_5_eval_nearest(i, &mut template_p_clone, resampled_points, weights);
+                    total_distance_2 += greedy_5_eval_nearest(i, &mut resampled_p_clone, &stroke.0, weights);
                 }
 
-                least_distance = least_distance.min(total_distance);
+                let min = f32::min(total_distance_1, total_distance_2);
+                least_distance = least_distance.min(min);
             }
 
             if least_distance < least_shape_distance {
@@ -332,11 +348,11 @@ fn textbox_input_listener(
 
         if resampled_points.0.len() == N_RESAMPLED_POINTS {
             if let Some(set) = custom_templates.0.get_mut(text) {
-                set.insert(Template(resampled_points.0.to_owned().try_into().unwrap()));
+                set.insert(Template(resampled_points.0.clone()));
             } else {
                 custom_templates.0.insert(
                     text.clone(),
-                    HashSet::from([Template(resampled_points.0.to_owned().try_into().unwrap())]),
+                    HashSet::from([Template(resampled_points.0.clone())]),
                 );
             }
             result_text.0 = format!("{} gesture added!", text);
@@ -465,7 +481,7 @@ fn draw(
 
         let mut resampled_points = resample(&candidate_vectors, *total_length);
         scale_and_translate(&mut resampled_points);
-        let name = greedy_2(templates, &resampled_points, 0.5);
+        let name = greedy_5(templates, &resampled_points, 0.5);
 
         let end_time = Utc::now();
         let elapsed_time = end_time.signed_duration_since(start_time);

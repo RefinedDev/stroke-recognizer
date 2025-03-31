@@ -1,8 +1,7 @@
 use std::{collections::{HashMap, HashSet}, hash::Hash};
 use bevy::math::Vec2;
 
-const SIZE: usize = 64;
-pub struct Template(pub [Vec2; SIZE]);
+pub struct Template(pub Vec<Vec2>);
 
 impl PartialEq for Template {
     fn eq(&self, other: &Self) -> bool {
@@ -88,7 +87,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(-0.045346677, 0.64678115),
         Vec2::new(-0.04534647, 0.678031),
         Vec2::new(-0.05353254, 0.70680267),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("N"), HashSet::from([Template([
         Vec2::new(-0.44838375, -0.4675588),
         Vec2::new(-0.43503588, -0.4186213),
@@ -154,7 +153,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(0.42912078, -0.3572396),
         Vec2::new(0.42912078, -0.40929145),
         Vec2::new(0.42912078, -0.46134332),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("D"), HashSet::from([Template([
         Vec2::new(-0.29204664, -0.4359397),
         Vec2::new(-0.2920468, -0.39460924),
@@ -220,7 +219,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(-0.050719574, 0.4794966),
         Vec2::new(-0.088305265, 0.49575973),
         Vec2::new(-0.123437956, 0.5150223),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("P"), HashSet::from([Template([
         Vec2::new(-0.15183748, -0.3355197),
         Vec2::new(-0.15183736, -0.30179048),
@@ -286,7 +285,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(-0.010357097, 0.12607759),
         Vec2::new(-0.044086203, 0.12607759),
         Vec2::new(-0.076586835, 0.13041279),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("X"), HashSet::from([Template([
         Vec2::new(-0.36742547, -0.48817065),
         Vec2::new(-0.3484132, -0.45160848),
@@ -352,7 +351,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(-0.40442196, 0.4079578),
         Vec2::new(-0.43621084, 0.4338662),
         Vec2::new(-0.4627173, 0.4650783),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("H"), HashSet::from([Template([
         Vec2::new(-0.4866729, -0.40701053),
         Vec2::new(-0.4825609, -0.3645404),
@@ -418,7 +417,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(0.32431236, -0.04693666),
         Vec2::new(0.36703333, -0.048280388),
         Vec2::new(0.40823618, -0.054629564),       
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("I"), HashSet::from([Template([
         Vec2::new(-0.015470654, -0.39278397),
         Vec2::new(-0.015470654, -0.3492696),
@@ -484,7 +483,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(0.41379055, 0.37731767),
         Vec2::new(0.4573007, 0.37737578),
         Vec2::new(0.50081503, 0.37737578),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("Exclamation"), HashSet::from([Template([
         Vec2::new(-0.00019410066, -0.44659325),
         Vec2::new(-0.00019410066, -0.4325124),
@@ -550,7 +549,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(-0.0068109063, 0.41106352),
         Vec2::new(-0.016736368, 0.53932595),
         Vec2::new(-0.016736368, 0.5534067),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("Line"), HashSet::from([Template([
         Vec2::new(-0.50002027, -0.0108036045),
         Vec2::new(-0.4841403, -0.0108036045),
@@ -616,7 +615,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(0.46822, 0.012443095),
         Vec2::new(0.4840998, 0.012443095),
         Vec2::new(0.49997973, 0.012443095),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("Five-point Star"), HashSet::from([Template([
         Vec2::new(-0.43108112, 0.48746496),
         Vec2::new(-0.41078618, 0.4079765),
@@ -682,7 +681,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(-0.27645135, 0.31786728),
         Vec2::new(-0.33872607, 0.37093794),
         Vec2::new(-0.39898315, 0.4234686),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("Null"), HashSet::from([Template([
         Vec2::new(0.099035144, -0.39030936),
         Vec2::new(0.042154133, -0.40670568),
@@ -748,7 +747,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(-0.29884785, 0.39608854),
         Vec2::new(-0.34539723, 0.43901932),
         Vec2::new(-0.39480624, 0.47852004),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("Arrow"), HashSet::from([Template([
         Vec2::new(-0.6617531, -0.040013045),
         Vec2::new(-0.6341737, -0.040013045),
@@ -814,7 +813,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(0.14729804, 0.31776503),
         Vec2::new(0.13654, 0.3430855),
         Vec2::new(0.12384635, 0.36706927),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("Pitchfork"), HashSet::from([Template([
         Vec2::new(-0.017623335, -0.25289166),
         Vec2::new(-0.017623335, -0.21130186),
@@ -880,7 +879,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(0.40884182, -0.36716765),
         Vec2::new(0.417843, -0.40774155),
         Vec2::new(0.42792997, -0.44808957),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("Six-point Star"), HashSet::from([Template([
         Vec2::new(-0.48177987, 0.415153),
         Vec2::new(-0.45839685, 0.32628903),
@@ -946,7 +945,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(-0.07984933, -0.399167),
         Vec2::new(-0.17176256, -0.399167),
         Vec2::new(-0.26367575, -0.399167),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("Asterisk"), HashSet::from([Template([
         Vec2::new(-0.0077475905, -0.44588992),
         Vec2::new(-0.003574729, -0.38880768),
@@ -1012,7 +1011,7 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(-0.31924957, 0.35323665),
         Vec2::new(-0.3522722, 0.3988677),
         Vec2::new(-0.38559547, 0.44553646),
-    ])]));
+    ].to_vec())]));
     h.insert(String::from("Half-note"), HashSet::from([Template([
         Vec2::new(0.076013386, -0.63016677),
         Vec2::new(0.076013386, -0.60478556),
@@ -1078,6 +1077,6 @@ pub fn stroke_templates() -> HashMap<String, HashSet<Template>> {
         Vec2::new(0.08503479, 0.18552637),
         Vec2::new(0.08784774, 0.16037804),
         Vec2::new(0.08883414, 0.1351183),
-    ])]));
+    ].to_vec())]));
     h
 }
