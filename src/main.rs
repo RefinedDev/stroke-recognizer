@@ -244,9 +244,9 @@ fn main() {
         .add_systems(
             Update,
             (
+                draw_state_handler,
                 toggle_brush,
                 handle_adding_gestures,
-                draw_state_handler,
                 draw,
                 textbox_input_listener,
             )
@@ -262,6 +262,7 @@ fn main() {
 }
 
 fn toggle_brush(
+    mut over_button: ResMut<OverAButton>,
     mut brush_enabled: ResMut<BrushEnabled>,
     mut interaction_query: Query<
         (&Interaction, &mut BorderColor),
@@ -272,6 +273,7 @@ fn toggle_brush(
     for (interaction, mut border_color) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
+                over_button.0 = true;
                 brush_enabled.0 = !brush_enabled.0;
                 border_color.0 = bevy::color::palettes::css::LIGHT_GREEN.into();
                 text.0 = if brush_enabled.0 {
@@ -282,6 +284,7 @@ fn toggle_brush(
             }
             _ => {
                 text.0 = format!("Toggle Brush");
+                over_button.0 = false;
                 border_color.0 = Color::WHITE;
             }
         }
@@ -333,6 +336,7 @@ fn handle_adding_gestures(
                 }
             }
             _ => {
+                over_button.0 = false;
                 border_color.0 = Color::WHITE;
             }
         }
@@ -379,6 +383,7 @@ fn draw_state_handler(
     mouse_move_delta: Res<AccumulatedMouseMotion>,
     mut draw_state: ResMut<DrawState>,
     window: Single<&Window>,
+    mut over_button: ResMut<OverAButton>,
     mut interaction_query: Query<
         (&Interaction, &mut BorderColor),
         (Changed<Interaction>, With<EndDrawingButton>),
@@ -414,7 +419,7 @@ fn draw_state_handler(
         || keyboard.just_released(KeyCode::Space)
         || touches.any_just_released()
     {
-        if draw_state.0 != DrawMoment::Idle {
+        if !over_button.0 {
             draw_state.0 = DrawMoment::Paused;
         }
     }
@@ -422,10 +427,11 @@ fn draw_state_handler(
     for (interaction, mut border_color) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
+                over_button.0 = true;
                 border_color.0 = bevy::color::palettes::css::LIGHT_GREEN.into();
                 draw_state.0 = DrawMoment::Ended;
             }
-            _ => border_color.0 = Color::WHITE
+            _ => {over_button.0 = false; border_color.0 = Color::WHITE;}
         }
     }
 
@@ -469,7 +475,7 @@ fn draw(
     mut candidate_vectors: Local<Vec<Vec<Vec2>>>,
     mut total_length: Local<f32>,
     is_typing: Res<IsTyping>,
-    mut over_button: ResMut<OverAButton>,
+    over_button: Res<OverAButton>,
     mut final_resampled_points: ResMut<ResampledPoints>,
 
     mut draw_state: ResMut<DrawState>,
@@ -477,13 +483,13 @@ fn draw(
 
     templates: Res<StrokeTemplates>,
 ) {
-    if is_typing.0 || over_button.0 {
+    if is_typing.0 {
         draw_state.0 = DrawMoment::Idle;
-        over_button.0 = false;
         return;
     }
 
     if let DrawMoment::Began(mouse_pos, paused) = draw_state.0 {
+        if over_button.0 { return }
         result_text.0 = "".to_string();
         let board = images.get_mut(&drawingboard.0).expect("Board not found!!");
 
@@ -521,6 +527,7 @@ fn draw(
         draw_state.0 = DrawMoment::Idle;
         *stroke_index = 0;
     } else if let DrawMoment::Drawing(mouse_pos) = draw_state.0 {
+        if over_button.0 { return }
         let board = images.get_mut(&drawingboard.0).expect("Board not found!!");
         let delta = previous_pos.distance(mouse_pos);
 
