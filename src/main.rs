@@ -17,7 +17,7 @@ use templates::Template;
 const BRUSH_THICKNESS: u32 = 3;
 const BRUSH_COLOR: Color = Color::linear_rgb(255.0, 255.0, 255.0);
 const BOARD_COLOR: Color = Color::linear_rgb(0.0, 0.0, 0.0);
-const N_RESAMPLED_POINTS: usize = 64;
+const N_RESAMPLED_POINTS: usize = 32;
 
 #[derive(Resource)]
 struct DrawingBoard(Handle<Image>);
@@ -39,6 +39,9 @@ struct ToggleBrushButton;
 
 #[derive(Component)]
 struct AddGestureButton;
+
+#[derive(Component)]
+struct EndDrawingButton;
 
 #[derive(PartialEq)]
 enum DrawMoment {
@@ -92,7 +95,7 @@ fn resample(candidate_vectors: &Vec<Vec<Vec2>>, total_length: f32) -> Vec<Vec2> 
         }
     }
 
-    while resampled_points.len() > 64 {
+    while resampled_points.len() > N_RESAMPLED_POINTS {
         resampled_points.pop();
     }
     
@@ -376,6 +379,10 @@ fn draw_state_handler(
     mouse_move_delta: Res<AccumulatedMouseMotion>,
     mut draw_state: ResMut<DrawState>,
     window: Single<&Window>,
+    mut interaction_query: Query<
+        (&Interaction, &mut BorderColor),
+        (Changed<Interaction>, With<EndDrawingButton>),
+    >,
 ) {
     if buttons.just_pressed(MouseButton::Left) || keyboard.just_pressed(KeyCode::Space) {
         if let Some(x) = window.cursor_position() {
@@ -407,10 +414,21 @@ fn draw_state_handler(
         || keyboard.just_released(KeyCode::Space)
         || touches.any_just_released()
     {
-        draw_state.0 = DrawMoment::Paused;
+        if draw_state.0 != DrawMoment::Idle {
+            draw_state.0 = DrawMoment::Paused;
+        }
     }
 
-    // implement button for phone
+    for (interaction, mut border_color) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                border_color.0 = bevy::color::palettes::css::LIGHT_GREEN.into();
+                draw_state.0 = DrawMoment::Ended;
+            }
+            _ => border_color.0 = Color::WHITE
+        }
+    }
+
     if buttons.just_released(MouseButton::Right) {
         draw_state.0 = DrawMoment::Ended
     }
@@ -483,6 +501,7 @@ fn draw(
         *previous_pos = mouse_pos;
         candidate_vectors[*stroke_index].push(mouse_pos);
     } else if draw_state.0 == DrawMoment::Ended {
+        if candidate_vectors.is_empty() || candidate_vectors[0].is_empty() { draw_state.0 = DrawMoment::Idle; return;}
         let start_time = Utc::now();
 
         let mut resampled_points = resample(&candidate_vectors, *total_length);
@@ -620,7 +639,42 @@ fn spawn(window: Single<&Window>, mut commands: Commands, mut images: ResMut<Ass
                         ..default()
                     },
                     TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                    ToggleBrushButton,
+                    ToggleBrushButton
+                ));
+        });
+    
+    commands
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            align_items: AlignItems::End,
+            justify_content: JustifyContent::End,
+            ..default()
+        })
+        .with_children(|parent| {
+            parent
+                .spawn((
+                    Button,
+                    Node {
+                        width: Val::Px(140.0),
+                        height: Val::Px(65.0),
+                        border: UiRect::all(Val::Px(3.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BorderColor(Color::WHITE),
+                    BorderRadius::MAX,
+                    BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
+                    EndDrawingButton,
+                ))
+                .with_child((
+                    Text::new("Recognize"),
+                    TextFont {
+                        font_size: 17.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
                 ));
         });
 
